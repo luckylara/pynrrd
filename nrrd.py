@@ -6,10 +6,40 @@ from collections import OrderedDict
 #
 # utility nrrd header reader for .nhdr
 class NrrdHeader:
-    _data = {}
+    def fromNiftiHeader(nifti_header):
+        header = NrrdHeader()
+        aff = nifti_header.get_best_affine()
+
+        header.correctSpaceRas()
+        header.setValue('space directions', aff[:3,:3])
+        header.setValue('space origin', aff[:3,3])
+        header.setValue('sizes', nifti_header.get_data_shape())
+        header.setValue('dimension', str(len(nifti_header.get_data_shape()))
+
+
+        return header
+
+    fromNiftiHeader = staticmethod(fromNiftiHeader)
+
+
     b0num = 0
-    def __init__ (self, dic):
-        self._data = dic
+    def __init__ (self, dic=None):        
+        # default headers
+        self._data = OrderedDict({
+            "header": "NRRD0004", 
+            "type": "double", 
+            "dimension": "3", 
+            "space": "left-posterior-superior", 
+            "sizes": [0,0,0], 
+            "space directions": [[1, 0.0, 0.0],[0.0, -1, 0.0], [0.0, 0.0, 1]], 
+            "kinds": ["domain", "domain", "domain"], 
+            "endian": "little", 
+            "encoding": "gzip", 
+            "space origin": [0, 0, 0]
+        })
+           
+        if dict:
+            self._data = dic
         if dic.has_key('b0num'):
             self.b0num = self._data['b0num']
 
@@ -39,14 +69,14 @@ class NrrdHeader:
         print origin
         directions = self.getValue('space directions')
         print directions
-        frame = np.array(self.getValue('measurement frame'))
+        frame = [self.getValue('measurement frame')]
         print frame
         # don't invert dwi vectors, slicer doesn't do this internally
         #dwivec = self.getDwiGradients()
 
         nospace = directions.index(np.nan)
         directions.remove(np.nan)
-        dvec = np.array(directions)
+        dvec = [directions]
         print dvec
 
         if space[0] == 'left':
@@ -92,7 +122,7 @@ class NrrdHeader:
         directions = self.getValue('space directions')
         print directions
         #dwivec = self.getDwiGradients()
-        frame = np.array(self.getValue('measurement frame'))
+        frame = [self.getValue('measurement frame')]
         print frame
         dwivec = self.getDwiGradients()
         print dwivec
@@ -103,7 +133,7 @@ class NrrdReader:
     grdkey = 'DWMRI_gradient'
     b0num = 'b0num'
 
-    def getFileAsHeader(self, filename):
+    def load(self, filename):
         params, bindata = self.getFileContent(filename)
         hobj = NrrdHeader(params)
         return hobj, bindata
@@ -154,10 +184,8 @@ class NrrdReader:
                     val = self.getVals(val, 'float')
                 elif key.startswith('measurement frame'):
                     val = self.getVals(val, 'float')
-                elif key.startswith('data file'):
-                    val = [val.strip()]
                 else:
-                    val = self.getVals(val, 'str')
+                    val = self.getVals(val)
 
                 if key.startswith(self.grdkey):
                     if not params.has_key(self.grdkey):
@@ -181,7 +209,7 @@ class NrrdReader:
 
         if (params.has_key(self.grdkey)):
             dwivec = params[self.grdkey]
-            params[self.grdkey] = np.array(dwivec)
+            params[self.grdkey] = [dwivec]
 
         return params, bindata
 
@@ -198,6 +226,7 @@ class NrrdReader:
             return value
 
     def getVals(self,input, dtype='str'):
+        input = input.strip()
         if input.find('(') > -1:
             input = input.replace('(','|')
             input = input.replace(')','|')
@@ -219,10 +248,9 @@ class NrrdReader:
             else:
                 row = self.asDtype(dtype, i)
                 res.append(row)
-
         if len(res) == 1:
-            a = np.array(res)
-            res = np.ravel(a)
+            a = [res]
+            res = res[0]
         return res
 
 class NrrdWriter:
