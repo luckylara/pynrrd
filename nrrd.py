@@ -14,8 +14,7 @@ class NrrdHeader:
         header.setValue('space directions', aff[:3,:3])
         header.setValue('space origin', aff[:3,3])
         header.setValue('sizes', nifti_header.get_data_shape())
-        header.setValue('dimension', str(len(nifti_header.get_data_shape()))
-
+        header.setValue('dimension', str(len(nifti_header.get_data_shape())))
 
         return header
 
@@ -43,8 +42,16 @@ class NrrdHeader:
         if dic.has_key('b0num'):
             self.b0num = self._data['b0num']
 
+    def getAffine(self):
+        affine = np.eye(4)
+        affine[:3,:3] = np.sign(self.getValue('space directions')[:3])
+        affine[:3,3] = self.getValue('space origin')
+
+        return affine
+
+
     def getDwiGradients(self):
-        return self._data['DWMRI_gradient']
+        return self._data['DWMRI_gradient'][0]
 
     def setDwiGradients(self, vec):
          self._data['DWMRI_gradient'] = vec
@@ -61,23 +68,39 @@ class NrrdHeader:
     def isDTMR(self):
         return self.b0num > 0
 
+    def getB0(self):
+        return self.getValue('DWMRI_b-value')
+
+    def getBvals(self):
+        b0 = self.getB0()
+        bvals = np.repeat(float(b0), len(self.getDwiGradients()))
+        return bvals
+
     def correctSpaceRas(self):
-        spaceraw = self.getValue('space')[0]
-        space = spaceraw.split('-')
-        print space
-        origin = self.getValue('space origin')
-        print origin
-        directions = self.getValue('space directions')
-        print directions
-        frame = [self.getValue('measurement frame')]
-        print frame
+        def print_info(self):
+            spaceraw = self.getValue('space')
+            space = spaceraw.split('-')
+            print 'space:',space
+            origin = self.getValue('space origin')
+            print 'origin:',origin
+            directions = self.getValue('space directions')
+            print 'space directions:',directions
+            frame = np.array(self.getValue('measurement frame'))
+            print 'measurement frame:',frame
         # don't invert dwi vectors, slicer doesn't do this internally
         #dwivec = self.getDwiGradients()
+        print '==============before============'
+        print_info(self)
+
+        spaceraw = self.getValue('space')
+        space = spaceraw.split('-')
+        origin = self.getValue('space origin')
+        directions = self.getValue('space directions')
+        frame = np.array(self.getValue('measurement frame'))
 
         nospace = directions.index(np.nan)
         directions.remove(np.nan)
-        dvec = [directions]
-        print dvec
+        dvec = np.array([directions])
 
         if space[0] == 'left':
             print '---------------------------'
@@ -106,39 +129,31 @@ class NrrdHeader:
             frame[:,2] *= -1
             #dwivec[:,2] *= -1
 
-        self.setValue('space',['-'.join(space)])
-        dvec = np.insert(dvec.astype(np.object),nospace,np.nan,0).tolist()
+        self.setValue('space','-'.join(space))
+        dvec = np.insert(dvec.astype(np.object),nospace,np.nan,1).tolist()[0]
         dvec[nospace] = np.nan
         self.setValue('space directions',dvec)
         self.setValue('measurement frame', frame.tolist())
         #self.setDwiGradients(dwivec)
 
         print '==============after============'
-        spaceraw = self.getValue('space')[0]
-        space = spaceraw.split('-')
-        print space
-        origin = self.getValue('space origin')
-        print origin
-        directions = self.getValue('space directions')
-        print directions
+        print_info(self)
         #dwivec = self.getDwiGradients()
-        frame = [self.getValue('measurement frame')]
-        print frame
-        dwivec = self.getDwiGradients()
-        print dwivec
+        #print dwivec
 
 
 
 class NrrdReader:
     grdkey = 'DWMRI_gradient'
     b0num = 'b0num'
+    def getFileAsHeader(self, filename):
+        return self.load(filename)
 
-    def load(self, filename):
-        params, bindata = self.getFileContent(filename)
-        hobj = NrrdHeader(params)
-        return hobj, bindata
+    def load(self, filename, get_raw=False):
+        params, bindata = self.getFileContent(filename, get_raw=get_raw)
+        return params, bindata
 
-    def getFileContent(self, filename):
+    def getFileContent(self, filename, get_raw=False):
         TFILE = open(filename, 'r')
         strbuf =""
         bindata = None
@@ -146,10 +161,13 @@ class NrrdReader:
             data = TFILE.read().split("\n\n",1)
             strbuf = data[0].split('\n')
             bindata = data[1]
+
         else:
             strbuf = TFILE.read().split('\n')
 
         TFILE.close()
+
+
 
         params = OrderedDict()
 
@@ -211,6 +229,21 @@ class NrrdReader:
             dwivec = params[self.grdkey]
             params[self.grdkey] = [dwivec]
 
+        params = NrrdHeader(params)
+        if not get_raw:
+            if bindata:
+                print params
+                type_val = params.getValue('type')
+                if  type_val == 'short':
+                    m_type = np.short
+                elif type_val == 'float':
+                    m_type = np.float32
+                elif type_val == 'double':
+                    m_type = np.double
+
+                a = np.fromstring(bindata, dtype=m_type)
+
+                bindata = np.reshape(a, params.getValue('sizes'))
         return params, bindata
 
     def asDtype(self, dtype, value):
@@ -266,18 +299,16 @@ class NrrdWriter:
                 line=val+'\n'
             elif k=='b0num':
                 continue
-            elif len(val)==1:
-                if k=='modality' or k=='DWMRI_b-value':
-                    eq = ':='
-                line = "%s%s%s\n" % (k,eq,val[0])
+            elif k=='modality' or k=='DWMRI_b-value':
+                eq = ':='
+                line = "%s%s%s\n" % (k,eq,val)
             elif k=='DWMRI_gradient':
-
                 c = 0
-                for i in val:
+                for i in val[0]:
                     i = self.formatOutput(i, brac=False, dim=' ')
                     line = "%s_%04d:=%s\n" % (k, c, i)
                     c+=1
-                    #print line,
+                    print line,
                     FILE.write(line)
                     is_write=False
             else:
@@ -291,12 +322,15 @@ class NrrdWriter:
                     val = self.formatOutput(val,brac=False, dim=' ')
                 line = "%s%s%s\n" % (k,eq,val)
             if is_write:
-                #print line,
+                print line,
                 FILE.write(line)
 
         FILE.close()
     def formatOutput(self, lis, nested=False, brac=True, dim=','):
         res=''
+        if type(lis) is str:
+            return lis
+
         if not nested:
             if brac:
                 res='('
