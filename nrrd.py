@@ -202,6 +202,8 @@ class NrrdReader:
                     val = self.getVals(val, 'float')
                 elif key.startswith('measurement frame'):
                     val = self.getVals(val, 'float')
+                elif key.startswith('data file'):
+                    val = val.strip()
                 else:
                     val = self.getVals(val)
 
