@@ -1,5 +1,7 @@
 import numpy as np
 from collections import OrderedDict
+import os.path as path
+import gzip
 
 # Author: David Qixiang Chen
 # email: qixiang.chen@gmail.com
@@ -37,15 +39,15 @@ class NrrdHeader:
             "space origin": [0, 0, 0]
         })
            
-        if dict:
+        if dic:
             self._data = dic
         if dic.has_key('b0num'):
             self.b0num = self._data['b0num']
 
     def getAffine(self):
         affine = np.eye(4)
-        affine[:3,:3] = np.sign(self.getValue('space directions')[:3])
-        affine[:3,3] = self.getValue('space origin')
+        affine[:3,:3] = np.sign(self['space directions'][:3])
+        affine[:3,3] = self['space origin']
 
         return affine
 
@@ -59,8 +61,13 @@ class NrrdHeader:
     def setValue(self,key, val):
         self._data[key] = val
 
-    def getValue(self,key):
-        return self._data[key]
+    def __getitem__(self, key):
+        if key in self._data:          
+            return self._data[key]
+        return False
+
+    def __setitem__(self, key, val):
+        self._data[key] = val
 
     def getKeys(self):
         return self._data.keys()
@@ -68,35 +75,35 @@ class NrrdHeader:
     def isDTMR(self):
         return self.b0num > 0
 
-    def getB0(self):
-        return self.getValue('DWMRI_b-value')
+    def getBval(self):
+        return float(self['DWMRI_b-value'])
 
     def getBvals(self):
-        b0 = self.getB0()
+        b0 = self.getBval()
         bvals = np.repeat(float(b0), len(self.getDwiGradients()))
         return bvals
 
     def correctSpaceRas(self):
         def print_info(self):
-            spaceraw = self.getValue('space')
+            spaceraw = self['space']
             space = spaceraw.split('-')
             print 'space:',space
-            origin = self.getValue('space origin')
+            origin = self['space origin']
             print 'origin:',origin
-            directions = self.getValue('space directions')
+            directions = self['space directions']
             print 'space directions:',directions
-            frame = np.array(self.getValue('measurement frame'))
+            frame = np.array(self['measurement frame'])
             print 'measurement frame:',frame
         # don't invert dwi vectors, slicer doesn't do this internally
         #dwivec = self.getDwiGradients()
         print '==============before============'
         print_info(self)
 
-        spaceraw = self.getValue('space')
+        spaceraw = self['space']
         space = spaceraw.split('-')
-        origin = self.getValue('space origin')
-        directions = self.getValue('space directions')
-        frame = np.array(self.getValue('measurement frame'))
+        origin = self['space origin']
+        directions = self['space directions']
+        frame = np.array(self['measurement frame'])
 
         nospace = directions.index(np.nan)
         directions.remove(np.nan)
@@ -146,14 +153,10 @@ class NrrdHeader:
 class NrrdReader:
     grdkey = 'DWMRI_gradient'
     b0num = 'b0num'
-    def getFileAsHeader(self, filename):
-        return self.load(filename)
 
     def load(self, filename, get_raw=False):
-        params, bindata = self.getFileContent(filename, get_raw=get_raw)
-        return params, bindata
+        filedir = path.dirname(path.abspath(filename))
 
-    def getFileContent(self, filename, get_raw=False):
         TFILE = open(filename, 'r')
         strbuf =""
         bindata = None
@@ -233,9 +236,21 @@ class NrrdReader:
 
         params = NrrdHeader(params)
         if not get_raw:
+            if not bindata and params['data file']:
+                bin_file = params['data file']
+                r_func = open
+                if params['encoding'] == 'gzip':
+                    r_func = gzip.open
+
+                with r_func(path.join(filedir, bin_file), 'rb') as fp:
+                    bindata = fp.read()
+            
+            elif bindata and params['encoding'] == 'gzip':
+                from StringIO import StringIO
+                bindata = gzip.GzipFile(fileobj=StringIO(bindata)).read()
+
             if bindata:
-                print params
-                type_val = params.getValue('type')
+                type_val = params['type']
                 if  type_val == 'short':
                     m_type = np.short
                 elif type_val == 'float':
@@ -245,7 +260,7 @@ class NrrdReader:
 
                 a = np.fromstring(bindata, dtype=m_type)
 
-                bindata = np.reshape(a, params.getValue('sizes'))
+                bindata = np.reshape(a, params['sizes'])
         return params, bindata
 
     def asDtype(self, dtype, value):
@@ -296,7 +311,7 @@ class NrrdWriter:
         eq = ': '
         for k in keys:
             is_write=True
-            val = nrrdheader.getValue(k)
+            val = nrrdheader[k]
             if k=='header':
                 line=val+'\n'
             elif k=='b0num':
