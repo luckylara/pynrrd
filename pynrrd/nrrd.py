@@ -53,7 +53,7 @@ class NrrdHeader:
 
 
     def getDwiGradients(self):
-        return self._data['DWMRI_gradient'][0]
+        return self._data['DWMRI_gradient']
 
     def setDwiGradients(self, vec):
          self._data['DWMRI_gradient'] = vec
@@ -232,7 +232,7 @@ class NrrdReader:
 
         if (params.has_key(self.grdkey)):
             dwivec = params[self.grdkey]
-            params[self.grdkey] = [dwivec]
+            params[self.grdkey] = dwivec
 
         params = NrrdHeader(params)
         if not get_raw:
@@ -321,7 +321,6 @@ class NrrdWriter:
                 line = "%s%s%s\n" % (k,eq,val)
             elif k=='DWMRI_gradient':
                 c = 0
-                #print val
                 for i in val:
                     i = self.formatOutput(i, brac=False, dim=' ')
                     line = "%s_%04d:=%s\n" % (k, c, i)
