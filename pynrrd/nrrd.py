@@ -321,7 +321,8 @@ class NrrdWriter:
                 line = "%s%s%s\n" % (k,eq,val)
             elif k=='DWMRI_gradient':
                 c = 0
-                for i in val[0]:
+                #print val
+                for i in val:
                     i = self.formatOutput(i, brac=False, dim=' ')
                     line = "%s_%04d:=%s\n" % (k, c, i)
                     c+=1
@@ -345,6 +346,7 @@ class NrrdWriter:
         FILE.close()
     def formatOutput(self, lis, nested=False, brac=True, dim=','):
         res=''
+        #print lis
         if type(lis) is str:
             return lis
 
